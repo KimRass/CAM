@@ -7,17 +7,16 @@ import numpy as np
 import cv2
 from pathlib import Path
 
-from image_utils import (
+from utils import (
     load_image,
-    _blend_two_images,
+    blend_two_images,
     save_image,
-    _apply_jet_colormap,
-    _reverse_jet_colormap,
+    apply_jet_colormap,
+    reverse_jet_colormap,
     draw_bboxes
 )
 
-# IDX2CLASS = json.load(open("./imagenet_class_index.json"))
-IDX2CLASS = json.load(open("/Users/jongbeomkim/Desktop/workspace/explainable_ai/cam/imagenet_class_index.json"))
+IDX2CLS = json.load(open("./imagenet_class_index.json"))
 
 
 def tensor_to_array(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
@@ -50,7 +49,7 @@ class ClassActivationMapper():
         cam -= cam.min()
         cam *= 255 / cam.max()
         cam = np.clip(cam, 0, 255).astype("uint8")
-        cam = _apply_jet_colormap(cam)
+        cam = apply_jet_colormap(cam)
         return cam
 
     def get_class_activation_map(self, image, category=None, rank=1, with_image=False):
@@ -67,14 +66,14 @@ class ClassActivationMapper():
         cam = self._preprocess_class_activation_map(cam=cam, h=h, w=w)
         if with_image:
             img = tensor_to_array(image)
-            result = _blend_two_images(img1=img, img2=cam, alpha=0.7)
+            result = blend_two_images(img1=img, img2=cam, alpha=0.7)
         else:
             result = cam
         return result, category
 
     def get_top_n_bboxes(self, image, n=1, thresh=0.2):
         def _cam_to_bboxes(cam):
-            cam = _reverse_jet_colormap(cam)
+            cam = reverse_jet_colormap(cam)
             _, obj_mask = cv2.threshold(src=cam, thresh=int(255 * (1 - thresh)), maxval=255, type=cv2.THRESH_BINARY)
             _, _, stats, _ = cv2.connectedComponentsWithStats(image=obj_mask)
             sorted_stats = stats[1:, ...][np.argsort(stats[1:, cv2.CC_STAT_AREA])[:: -1]]
@@ -109,7 +108,7 @@ if __name__ == "__main__":
         ]
     )
 
-    dir = Path("/Users/jongbeomkim/Desktop/workspace/explainable_ai/cam/examples")
+    dir = Path("examples")
     for img_path in dir.glob("*.jpg"):
         if "_original." not in img_path.name:
             continue
@@ -118,10 +117,12 @@ if __name__ == "__main__":
         image = transform(img).unsqueeze(0)
 
         cam, category = cam_gen.get_class_activation_map(image=image, with_image=True)
-        print(IDX2CLASS[str(category)][1])
+        print(IDX2CLS[str(category)][1])
         save_image(img=cam, path=dir/f"""{img_path.stem.rsplit("_", 1)[0]}_cam.png""")
 
         # cam_gen = ClassActivationMapper(model)
         bboxes = cam_gen.get_top_n_bboxes(image=image, n=5, thresh=0.7)
-        drawn = draw_bboxes(img=tensor_to_array(image), bboxes=bboxes[0: 1, ...,])
+        drawn = draw_bboxes(
+            img=tensor_to_array(image), bboxes=bboxes[0: 1, ...,], idx2cls=IDX2CLS,
+        )
         save_image(img=drawn, path=dir/f"""{img_path.stem.rsplit("_", 1)[0]}_bboxes.png""")
